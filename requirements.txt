@@ -1,5 +1,3 @@
 Flask
 requests
-hmac
-hashlib
-base64
+gunicorn
