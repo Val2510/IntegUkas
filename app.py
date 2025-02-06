@@ -7,6 +7,10 @@ import base64
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "Flask is running!"
+
 # 🔹 Настройки AmoCRM
 AMO_DOMAIN = "fitarena.amocrm.ru"  # ← Измените на ваш домен AmoCRM
 AMO_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6IjAwZjU4YTBlMzFkMmRkNTA5ZjI2ZmNlMGFjNTc5YjZlMDM3YjUwMGQ4Nzg4YzcwOWFkYzVhYzM0ZTFjNjFjNTQ4MjI5YzU3MzliMTZkZjMyIn0.eyJhdWQiOiI0NmMzODZhMi1jYzQ2LTQxNDgtOGU2YS0xOThkZmY0YmNkNjYiLCJqdGkiOiIwMGY1OGEwZTMxZDJkZDUwOWYyNmZjZTBhYzU3OWI2ZTAzN2I1MDBkODc4OGM3MDlhZGM1YWMzNGUxYzYxYzU0ODIyOWM1NzM5YjE2ZGYzMiIsImlhdCI6MTczODgzODY2OCwibmJmIjoxNzM4ODM4NjY4LCJleHAiOjE4OTYwNDgwMDAsInN1YiI6IjMzMjg1MTkiLCJncmFudF90eXBlIjoiIiwiYWNjb3VudF9pZCI6MjUxOTkwMjksImJhc2VfZG9tYWluIjoiYW1vY3JtLnJ1IiwidmVyc2lvbiI6Miwic2NvcGVzIjpbImNybSIsImZpbGVzIiwiZmlsZXNfZGVsZXRlIiwibm90aWZpY2F0aW9ucyIsInB1c2hfbm90aWZpY2F0aW9ucyJdLCJoYXNoX3V1aWQiOiIyY2JjZjIwMC0xNmEyLTRiZWQtYjdhNy1iZjc5ZjczM2M5ZjUiLCJhcGlfZG9tYWluIjoiYXBpLWIuYW1vY3JtLnJ1In0.B0elZrHP_aclPIYfOLOuO8VA8XHJQRf7Ras6W2b58Yg1V5TZMalm0EvdqKDx-Ygb8onU8JAbThzCGOaz_JD7eheimbKQHNXtB-IArAFxSNc4KEkgMtpP-HphUCVhsLi2_0STYZItSBHlyIoqjlR8wdls_ZbUiJ9kmUnXk5Qcfx6KUXbKcuGL7oQPB_ywvliR1c1-HWnrHtg-8mlkqIR3g64_ZFhgR0z4IDLP0SABljLsl6jjD5P3Lu9ua3efBC7TrGy7e8XNegbKNscdvViB4oVuDSRO-u0zJf0AsSsrt0d17bwNdEtQhgIoljUnhBzZGj_z9F0iAj2nSOplpBQZ9Q"  # ← Укажите актуальный токен API
