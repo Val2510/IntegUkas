@@ -85,8 +85,8 @@ def get_payment_status(payment_id):
 def payment_status():
     try:
         # Проверка подлинности вебхука
-        if not verify_yookassa_signature(request):
-            return jsonify({"error": "Invalid signature"}), 403
+        #if not verify_yookassa_signature(request):
+         #   return jsonify({"error": "Invalid signature"}), 403
 
         data = request.json
         order_id = data.get("object", {}).get("metadata", {}).get("order_id")
