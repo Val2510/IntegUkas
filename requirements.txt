@@ -1,0 +1,5 @@
+Flask
+requests
+hmac
+hashlib
+base64
