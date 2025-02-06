@@ -4,6 +4,7 @@ import requests
 import hmac
 import hashlib
 import base64
+from yookassa import Configuration, Payment # type: ignore
 
 app = Flask(__name__)
 
@@ -16,8 +17,12 @@ AMO_DOMAIN = "fitarena.amocrm.ru"  # ← Измените на ваш домен
 AMO_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6IjAwZjU4YTBlMzFkMmRkNTA5ZjI2ZmNlMGFjNTc5YjZlMDM3YjUwMGQ4Nzg4YzcwOWFkYzVhYzM0ZTFjNjFjNTQ4MjI5YzU3MzliMTZkZjMyIn0.eyJhdWQiOiI0NmMzODZhMi1jYzQ2LTQxNDgtOGU2YS0xOThkZmY0YmNkNjYiLCJqdGkiOiIwMGY1OGEwZTMxZDJkZDUwOWYyNmZjZTBhYzU3OWI2ZTAzN2I1MDBkODc4OGM3MDlhZGM1YWMzNGUxYzYxYzU0ODIyOWM1NzM5YjE2ZGYzMiIsImlhdCI6MTczODgzODY2OCwibmJmIjoxNzM4ODM4NjY4LCJleHAiOjE4OTYwNDgwMDAsInN1YiI6IjMzMjg1MTkiLCJncmFudF90eXBlIjoiIiwiYWNjb3VudF9pZCI6MjUxOTkwMjksImJhc2VfZG9tYWluIjoiYW1vY3JtLnJ1IiwidmVyc2lvbiI6Miwic2NvcGVzIjpbImNybSIsImZpbGVzIiwiZmlsZXNfZGVsZXRlIiwibm90aWZpY2F0aW9ucyIsInB1c2hfbm90aWZpY2F0aW9ucyJdLCJoYXNoX3V1aWQiOiIyY2JjZjIwMC0xNmEyLTRiZWQtYjdhNy1iZjc5ZjczM2M5ZjUiLCJhcGlfZG9tYWluIjoiYXBpLWIuYW1vY3JtLnJ1In0.B0elZrHP_aclPIYfOLOuO8VA8XHJQRf7Ras6W2b58Yg1V5TZMalm0EvdqKDx-Ygb8onU8JAbThzCGOaz_JD7eheimbKQHNXtB-IArAFxSNc4KEkgMtpP-HphUCVhsLi2_0STYZItSBHlyIoqjlR8wdls_ZbUiJ9kmUnXk5Qcfx6KUXbKcuGL7oQPB_ywvliR1c1-HWnrHtg-8mlkqIR3g64_ZFhgR0z4IDLP0SABljLsl6jjD5P3Lu9ua3efBC7TrGy7e8XNegbKNscdvViB4oVuDSRO-u0zJf0AsSsrt0d17bwNdEtQhgIoljUnhBzZGj_z9F0iAj2nSOplpBQZ9Q"  # ← Укажите актуальный токен API
 PAYMENT_STATUS_FIELD_ID = 704249  # ← ID поля "Статус оплаты" в AmoCRM
 
-# 🔹 Настройки ЮKassa
-YOOKASSA_SECRET_KEY = "live_fiBWt7qk-rZFAr3utLXCLZ3Uc-nTDBYZjiMBUPV-Qp8"  # ← секретный ключ
+YOOKASSA_SHOP_ID = "278210"  # ← ID магазина
+YOOKASSA_SECRET_KEY = "live_fiBWt7qk-rZFAr3utLXCLZ3Uc-nTDBYZjiMBUPV-Qp8"  # ← Секретный ключ
+
+# ✅ Настройка конфигурации ЮKassa через SDK
+Configuration.account_id = YOOKASSA_SHOP_ID
+Configuration.secret_key = YOOKASSA_SECRET_KEY
 
 # ✅ Функция проверки подлинности вебхуков ЮKassa
 def verify_yookassa_signature(request):
@@ -67,6 +72,14 @@ def update_lead_payment_status(lead_id, payment_status):
     response = requests.patch(url, headers=headers, json=data)
     return response.status_code == 200  
 
+# ✅ Функция получения статуса платежа через API ЮKassa
+def get_payment_status(payment_id):
+    try:
+        payment = Payment.find(payment_id)  # Получаем статус платежа
+        return payment.status  # "succeeded" или "canceled"
+    except Exception as e:
+        return str(e)
+
 # ✅ Обработчик вебхуков от ЮKassa
 @app.route("/payment_status", methods=["POST"])
 def payment_status():
@@ -94,6 +107,15 @@ def payment_status():
         else:
             return jsonify({"error": "Failed to update payment status"}), 500
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ✅ Проверка статуса платежа по `payment_id`
+@app.route("/check_payment/<payment_id>", methods=["GET"])
+def check_payment(payment_id):
+    try:
+        status = get_payment_status(payment_id)
+        return jsonify({"payment_id": payment_id, "status": status}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
