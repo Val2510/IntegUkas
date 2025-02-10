@@ -1,12 +1,9 @@
-
-import time
 from flask import Flask, request, jsonify
 import requests
-import hmac
-import hashlib
-import base64
 import logging
-from yookassa import Configuration, Payment # type: ignore
+import threading
+import time
+from yookassa import Configuration, Payment
 
 app = Flask(__name__)
 
@@ -29,146 +26,25 @@ YOOKASSA_SECRET_KEY = "live_fiBWt7qk-rZFAr3utLXCLZ3Uc-nTDBYZjiMBUPV-Qp8"  # ← 
 Configuration.account_id = YOOKASSA_SHOP_ID
 Configuration.secret_key = YOOKASSA_SECRET_KEY
 
-# ✅ Функция проверки подлинности вебхуков ЮKassa
-def verify_yookassa_signature(request):
-    signature = request.headers.get("X-Content-HMAC")
-    if not signature:
-        return False
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    body = request.data
-    hmac_obj = hmac.new(YOOKASSA_SECRET_KEY.encode(), body, hashlib.sha256)
-    expected_signature = base64.b64encode(hmac_obj.digest()).decode()
+app = Flask(__name__)
 
-    return hmac.compare_digest(signature, expected_signature)
-
-# ✅ Функция поиска лида по `order_id` в AmoCRM
-def find_lead_by_order_id(order_id):
-    url = f"https://{AMO_DOMAIN}/api/v4/leads"
-    headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
-    
-    params = {"query": order_id}  # Поиск по order_id
-    logging.debug(f"🔍 Поиск лида в AmoCRM по order_id: {order_id}")
-    response = requests.get(url, headers=headers, params=params)
-
-    if response.status_code == 200 and response.json().get('_embedded'):
-        leads = response.json()['_embedded']['leads']
-        if leads:
-            logging.debug(f"✅ Лид найден: {leads[0]['id']}")
-            return leads[0]  
-    logging.warning(f"⚠ Лид не найден по order_id: {order_id}")
-    return None
-
-# ✅ Функция обновления поля "Статус оплаты" в AmoCRM
-def update_lead_payment_status(lead_id, payment_status):
-    url = f"https://{AMO_DOMAIN}/api/v4/leads/{lead_id}"
-    headers = {
-        "Authorization": f"Bearer {AMO_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    new_status = "Оплачено" if payment_status == "succeeded" else "Не оплачено"
-
-    data = {
-        "custom_fields_values": [
-            {
-                "field_id": PAYMENT_STATUS_FIELD_ID,
-                "values": [{"value": new_status}]
-            }
-        ]
-    }
-
-    logging.debug(f"🔄 Обновляем статус лида {lead_id} на: {new_status}")
-    response = requests.patch(url, headers=headers, json=data)
-
-    if response.status_code == 200:
-        logging.info(f"✅ Успешное обновление статуса сделки {lead_id} на '{new_status}'")
-        return True
-    else:
-        logging.error(f"❌ Ошибка обновления лида {lead_id}. Код: {response.status_code}, Ответ: {response.text}")
-        return False
-
-# ✅ Функция получения статуса платежа через API ЮKassa
-def get_payment_status(payment_id):
-    try:
-        payment = Payment.find(payment_id)  # Получаем статус платежа
-        return payment.status  # "succeeded" или "canceled"
-    except Exception as e:
-        logging.error(f"❌ Ошибка получения статуса платежа: {e}")
-        return str(e)
-
-# ✅ Обработчик вебхуков от ЮKassa
-@app.route("/payment_status", methods=["POST"])
-def payment_status():
-    try:
-        # Проверка подлинности вебхука
-        #if not verify_yookassa_signature(request):
-         #   return jsonify({"error": "Invalid signature"}), 403
-
-        data = request.json
-        logging.debug(f"📩 Получен вебхук: {data}")
-        order_id = data.get("object", {}).get("metadata", {}).get("order_id") or data.get("object", {}).get("metadata", {}).get("order_id")
-        status = data.get("object", {}).get("status")  # "succeeded" или "canceled"
-        logging.debug(f"📌 Извлечён order_id: {order_id}, статус: {status}")
-
-        if not order_id or not status:
-            logging.warning("⚠ Отсутствует order_id или статус платежа в вебхуке")
-            return jsonify({"error": "Missing order_id or status"}), 400
-
-        lead = find_lead_by_order_id(order_id)
-
-        if not lead:
-            logging.warning(f"⚠ Лид с order_id {order_id} не найден в AmoCRM")
-            return jsonify({"error": "Lead not found"}), 404
-
-        lead_id = lead["id"]
-
-        if update_lead_payment_status(lead_id, status):
-            return jsonify({"success": f"Payment status updated in lead {lead_id}"}), 200
-        else:
-            return jsonify({"error": "Failed to update payment status"}), 500
-
-    except Exception as e:
-        logging.error(f"❌ Ошибка обработки вебхука: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# ✅ Проверка статуса платежа по `payment_id`
-@app.route("/check_payment/<payment_id>", methods=["GET"])
-def check_payment(payment_id):
-    try:
-        status = get_payment_status(payment_id)
-        logging.debug(f"🔎 Проверка статуса платежа {payment_id}: {status}")
-        return jsonify({"payment_id": payment_id, "status": status}), 200
-    except Exception as e:
-        logging.error(f"❌ Ошибка при проверке платежа {payment_id}: {e}")
-        return jsonify({"error": str(e)}), 500
-    
-# ✅ Функция поиска сделок в AmoCRM, где статус оплаты = "Не оплачено"
-def get_unpaid_leads():
+# ✅ Функция поиска сделки в AmoCRM по `payment_id`
+def find_lead_by_payment_id(payment_id):
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
     headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
 
-    params = {
-        f"filter[custom_fields_values][{PAYMENT_STATUS_FIELD_ID}]": "Не оплачено"
-    }
+    params = {f"filter[custom_fields_values][{PAYMENT_ID_FIELD_ID}]": payment_id}
 
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code == 200 and "_embedded" in response.json():
         leads = response.json()['_embedded']['leads']
-        logging.info(f"🔍 Найдено {len(leads)} неоплаченных сделок")
-        return leads
-    else:
-        logging.warning("⚠ Не найдены сделки со статусом 'Не оплачено'")
-        return []
-
-# ✅ Функция получения `payment_id` из сделки
-def get_payment_id_from_lead(lead):
-    for field in lead.get("custom_fields_values", []):
-        if field["field_id"] == PAYMENT_ID_FIELD_ID:
-            return field["values"][0]["value"]
+        return leads[0] if leads else None
     return None
 
-# ✅ Функция обновления статуса сделки
+# ✅ Функция обновления статуса сделки в AmoCRM
 def update_lead_payment_status(lead_id, new_status):
     url = f"https://{AMO_DOMAIN}/api/v4/leads/{lead_id}"
     headers = {
@@ -192,27 +68,79 @@ def update_lead_payment_status(lead_id, new_status):
     else:
         logging.error(f"❌ Ошибка обновления сделки {lead_id}: {response.text}")
 
-# ✅ Основной цикл авто-обновления сделок
+# ✅ Функция получения статуса платежа из ЮKassa
+def get_payment_status(payment_id):
+    try:
+        payment = Payment.find_one(payment_id)  # Запрос статуса платежа
+        return payment.status
+    except Exception as e:
+        logging.error(f"❌ Ошибка получения статуса платежа {payment_id}: {e}")
+        return None
+
+# ✅ Обработчик вебхуков от ЮKassa
+@app.route("/payment_status", methods=["POST"])
+def payment_status():
+    try:
+        data = request.json
+        logging.info(f"📩 Получен вебхук: {data}")
+
+        payment_id = data.get("object", {}).get("id")
+        status = data.get("object", {}).get("status")  # "succeeded" или "canceled"
+
+        if not payment_id or not status:
+            return jsonify({"error": "Missing payment_id or status"}), 400
+
+        lead = find_lead_by_payment_id(payment_id)
+
+        if not lead:
+            logging.warning(f"⚠ Лид с payment_id {payment_id} не найден в AmoCRM")
+            return jsonify({"error": "Lead not found"}), 404
+
+        lead_id = lead["id"]
+        new_status = "Оплачено" if status == "succeeded" else "Не оплачено"
+
+        update_lead_payment_status(lead_id, new_status)
+
+        return jsonify({"success": f"Payment status updated in lead {lead_id}"}), 200
+
+    except Exception as e:
+        logging.error(f"❌ Ошибка обработки вебхука: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# ✅ Фоновая задача: проверка статусов платежей каждые 5 минут
 def auto_update_payments():
     while True:
         logging.info("🔄 Начало проверки неоплаченных сделок...")
 
-        leads = get_unpaid_leads()
+        url = f"https://{AMO_DOMAIN}/api/v4/leads"
+        headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
+        params = {f"filter[custom_fields_values][{PAYMENT_STATUS_FIELD_ID}]": "Не оплачено"}
 
-        for lead in leads:
-            payment_id = get_payment_id_from_lead(lead)
-            if payment_id:
-                status = get_payment_status(payment_id)
+        response = requests.get(url, headers=headers, params=params)
 
-                if status == "succeeded":
-                    update_lead_payment_status(lead["id"], "Оплачено")
-                else:
-                    logging.info(f"⏳ Платёж {payment_id} ещё не завершён, статус: {status}")
+        if response.status_code == 200 and "_embedded" in response.json():
+            leads = response.json()['_embedded']['leads']
+            logging.info(f"🔍 Найдено {len(leads)} неоплаченных сделок")
 
-        logging.info("⏸ Ожидание 10 минут перед следующей проверкой...")
-        time.sleep(600)  # Ждём 10 минут перед следующей проверкой
+            for lead in leads:
+                payment_id = None
+                for field in lead.get("custom_fields_values", []):
+                    if field["field_id"] == PAYMENT_ID_FIELD_ID:
+                        payment_id = field["values"][0]["value"]
+                        break
+
+                if payment_id:
+                    status = get_payment_status(payment_id)
+                    if status == "succeeded":
+                        update_lead_payment_status(lead["id"], "Оплачено")
+                    else:
+                        logging.info(f"⏳ Платёж {payment_id} ещё не завершён, статус: {status}")
+
+        logging.info("⏸ Ожидание 5 минут перед следующей проверкой...")
+        time.sleep(300)  # Проверка каждые 5 минут
 
 if __name__ == "__main__":
+    threading.Thread(target=auto_update_payments, daemon=True).start()
     app.run(host="0.0.0.0", port=5000, debug=True)
 
 
