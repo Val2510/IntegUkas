@@ -40,12 +40,12 @@ def verify_yookassa_signature(request):
     return hmac.compare_digest(signature, expected_signature)
 
 # ✅ Функция поиска лида по `order_id` в AmoCRM
-def find_lead_by_order_id(ORDERID):
+def find_lead_by_order_id(orderid):
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
     headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
     
-    params = {"query": ORDERID}  # Поиск по order_id
-    logging.debug(f"🔍 Поиск лида в AmoCRM по order_id: {ORDERID}")
+    params = {"query": orderid}  # Поиск по order_id
+    logging.debug(f"🔍 Поиск лида в AmoCRM по order_id: {orderid}")
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code == 200 and response.json().get('_embedded'):
@@ -53,7 +53,7 @@ def find_lead_by_order_id(ORDERID):
         if leads:
             logging.debug(f"✅ Лид найден: {leads[0]['id']}")
             return leads[0]  
-    logging.warning(f"⚠ Лид не найден по order_id: {ORDERID}")
+    logging.warning(f"⚠ Лид не найден по order_id: {orderid}")
     return None
 
 # ✅ Функция обновления поля "Статус оплаты" в AmoCRM
@@ -104,18 +104,18 @@ def payment_status():
 
         data = request.json
         logging.debug(f"📩 Получен вебхук: {data}")
-        ORDERID = data.get("object", {}).get("metadata", {}).get("ORDERID") or data.get("object", {}).get("metadata", {}).get("order_id")
+        orderid = data.get("object", {}).get("metadata", {}).get("orderid") or data.get("object", {}).get("metadata", {}).get("order_id")
         status = data.get("object", {}).get("status")  # "succeeded" или "canceled"
-        logging.debug(f"📌 Извлечён order_id: {ORDERID}, статус: {status}")
+        logging.debug(f"📌 Извлечён order_id: {orderid}, статус: {status}")
 
-        if not ORDERID or not status:
+        if not orderid or not status:
             logging.warning("⚠ Отсутствует order_id или статус платежа в вебхуке")
             return jsonify({"error": "Missing order_id or status"}), 400
 
-        lead = find_lead_by_order_id(ORDERID)
+        lead = find_lead_by_order_id(orderid)
 
         if not lead:
-            logging.warning(f"⚠ Лид с order_id {ORDERID} не найден в AmoCRM")
+            logging.warning(f"⚠ Лид с order_id {orderid} не найден в AmoCRM")
             return jsonify({"error": "Lead not found"}), 404
 
         lead_id = lead["id"]
