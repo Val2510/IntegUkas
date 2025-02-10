@@ -37,11 +37,11 @@ def verify_yookassa_signature(request):
     return hmac.compare_digest(signature, expected_signature)
 
 # ✅ Функция поиска лида по `order_id` в AmoCRM
-def find_lead_by_order_id(order_id):
+def find_lead_by_order_id(orderid):
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
     headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
     
-    params = {"query": order_id}  # Поиск по order_id
+    params = {"query": orderid}  # Поиск по order_id
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code == 200 and response.json().get('_embedded'):
@@ -89,13 +89,13 @@ def payment_status():
          #   return jsonify({"error": "Invalid signature"}), 403
 
         data = request.json
-        order_id = data.get("object", {}).get("metadata", {}).get("order_id")
+        orderid = data.get("object", {}).get("metadata", {}).get("orderid")
         status = data.get("object", {}).get("status")  # "succeeded" или "canceled"
 
-        if not order_id or not status:
+        if not orderid or not status:
             return jsonify({"error": "Missing order_id or status"}), 400
 
-        lead = find_lead_by_order_id(order_id)
+        lead = find_lead_by_order_id(orderid)
 
         if not lead:
             return jsonify({"error": "Lead not found"}), 404
