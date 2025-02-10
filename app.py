@@ -30,6 +30,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "Flask сервер работает!"
+
 # ✅ Функция поиска сделки в AmoCRM по `payment_id`
 def find_lead_by_payment_id(payment_id):
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
