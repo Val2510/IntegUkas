@@ -4,9 +4,12 @@ import requests
 import hmac
 import hashlib
 import base64
+import logging
 from yookassa import Configuration, Payment # type: ignore
 
 app = Flask(__name__)
+
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 @app.route("/")
 def home():
@@ -37,17 +40,20 @@ def verify_yookassa_signature(request):
     return hmac.compare_digest(signature, expected_signature)
 
 # ✅ Функция поиска лида по `order_id` в AmoCRM
-def find_lead_by_order_id(orderid):
+def find_lead_by_order_id(ORDERID):
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
     headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
     
-    params = {"query": orderid}  # Поиск по order_id
+    params = {"query": ORDERID}  # Поиск по order_id
+    logging.debug(f"🔍 Поиск лида в AmoCRM по order_id: {ORDERID}")
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code == 200 and response.json().get('_embedded'):
         leads = response.json()['_embedded']['leads']
-        return leads[0] if leads else None  
-
+        if leads:
+            logging.debug(f"✅ Лид найден: {leads[0]['id']}")
+            return leads[0]  
+    logging.warning(f"⚠ Лид не найден по order_id: {ORDERID}")
     return None
 
 # ✅ Функция обновления поля "Статус оплаты" в AmoCRM
@@ -69,8 +75,15 @@ def update_lead_payment_status(lead_id, payment_status):
         ]
     }
 
+    logging.debug(f"🔄 Обновляем статус лида {lead_id} на: {new_status}")
     response = requests.patch(url, headers=headers, json=data)
-    return response.status_code == 200  
+
+    if response.status_code == 200:
+        logging.info(f"✅ Успешное обновление статуса сделки {lead_id} на '{new_status}'")
+        return True
+    else:
+        logging.error(f"❌ Ошибка обновления лида {lead_id}. Код: {response.status_code}, Ответ: {response.text}")
+        return False
 
 # ✅ Функция получения статуса платежа через API ЮKassa
 def get_payment_status(payment_id):
@@ -78,6 +91,7 @@ def get_payment_status(payment_id):
         payment = Payment.find(payment_id)  # Получаем статус платежа
         return payment.status  # "succeeded" или "canceled"
     except Exception as e:
+        logging.error(f"❌ Ошибка получения статуса платежа: {e}")
         return str(e)
 
 # ✅ Обработчик вебхуков от ЮKassa
@@ -89,15 +103,19 @@ def payment_status():
          #   return jsonify({"error": "Invalid signature"}), 403
 
         data = request.json
-        orderid = data.get("object", {}).get("metadata", {}).get("orderid")
+        logging.debug(f"📩 Получен вебхук: {data}")
+        ORDERID = data.get("object", {}).get("metadata", {}).get("ORDERID") or data.get("object", {}).get("metadata", {}).get("order_id")
         status = data.get("object", {}).get("status")  # "succeeded" или "canceled"
+        logging.debug(f"📌 Извлечён order_id: {ORDERID}, статус: {status}")
 
-        if not orderid or not status:
+        if not ORDERID or not status:
+            logging.warning("⚠ Отсутствует order_id или статус платежа в вебхуке")
             return jsonify({"error": "Missing order_id or status"}), 400
 
-        lead = find_lead_by_order_id(orderid)
+        lead = find_lead_by_order_id(ORDERID)
 
         if not lead:
+            logging.warning(f"⚠ Лид с order_id {ORDERID} не найден в AmoCRM")
             return jsonify({"error": "Lead not found"}), 404
 
         lead_id = lead["id"]
@@ -108,6 +126,7 @@ def payment_status():
             return jsonify({"error": "Failed to update payment status"}), 500
 
     except Exception as e:
+        logging.error(f"❌ Ошибка обработки вебхука: {e}")
         return jsonify({"error": str(e)}), 500
 
 # ✅ Проверка статуса платежа по `payment_id`
@@ -115,8 +134,10 @@ def payment_status():
 def check_payment(payment_id):
     try:
         status = get_payment_status(payment_id)
+        logging.debug(f"🔎 Проверка статуса платежа {payment_id}: {status}")
         return jsonify({"payment_id": payment_id, "status": status}), 200
     except Exception as e:
+        logging.error(f"❌ Ошибка при проверке платежа {payment_id}: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
