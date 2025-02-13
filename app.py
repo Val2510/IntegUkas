@@ -107,6 +107,72 @@ def payment_status():
         logging.error(f"❌ Ошибка обработки вебхука: {e}")
         return jsonify({"error": str(e)}), 500
 
+# ✅ Фоновая проверка старых платежей
+def check_old_payments():
+    logging.info("🔄 Начинаем проверку старых платежей...")
+
+    url = f"https://{AMO_DOMAIN}/api/v4/leads"
+    headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
+    params = {"filter[custom_fields_values][field_id]": [PAYMENT_ID_FIELD_ID, ORDER_ID_FIELD_ID]}
+
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code != 200:
+        logging.error(f"❌ Ошибка получения сделок из AmoCRM: {response.text}")
+        return
+
+    leads = response.json().get("_embedded", {}).get("leads", [])
+    if not leads:
+        logging.info("✅ Нет сделок с неоплаченными платежами")
+        return
+
+    for lead in leads:
+        payment_id = None
+        order_id = None
+
+        for field in lead.get("custom_fields_values", []):
+            if field["field_id"] == PAYMENT_ID_FIELD_ID:
+                payment_id = field["values"][0]["value"]
+            elif field["field_id"] == ORDER_ID_FIELD_ID:
+                order_id = field["values"][0]["value"]
+
+        if not payment_id and not order_id:
+            continue
+
+        # Проверяем статус платежа
+        payment = None
+        try:
+            if payment_id:
+                payment = Payment.find_one(payment_id)
+            elif order_id:
+                payments = Payment.list({"metadata.order_id": order_id})
+                if payments.items:
+                    payment = payments.items[0]
+                    payment_id = payment.id
+        except Exception as e:
+            logging.error(f"❌ Ошибка проверки платежа: {e}")
+            continue
+
+        if not payment:
+            logging.warning(f"⚠ Платеж для сделки {lead['id']} не найден в ЮKassa")
+            continue
+
+        status = payment.status
+        lead_id = lead["id"]
+        new_status = "Оплачено" if status == "succeeded" else "Не оплачено"
+        update_lead_payment_status(lead_id, new_status)
+
+        logging.info(f"🔄 Обновлен статус сделки {lead_id}: {new_status}")
+
+    logging.info("✅ Завершена проверка старых платежей")
+
+# ✅ Запуск фоновой проверки каждые 10 минут
+def start_background_checker():
+    while True:
+        check_old_payments()
+        time.sleep(600)  # 10 минут
+
+threading.Thread(target=start_background_checker, daemon=True).start()
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
