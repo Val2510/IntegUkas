@@ -113,14 +113,27 @@ def check_old_payments():
 
     url = f"https://{AMO_DOMAIN}/api/v4/leads"
     headers = {"Authorization": f"Bearer {AMO_ACCESS_TOKEN}"}
-    params = {"filter[custom_fields_values][field_id]": [PAYMENT_ID_FIELD_ID, ORDER_ID_FIELD_ID]}
 
+    leads = []
+
+    # 🔹 1. Запрашиваем сделки по `payment_id`
+    params = {"filter[custom_fields_values][field_id]": PAYMENT_ID_FIELD_ID}
     response = requests.get(url, headers=headers, params=params)
-    if response.status_code != 200:
-        logging.error(f"❌ Ошибка получения сделок из AmoCRM: {response.text}")
-        return
 
-    leads = response.json().get("_embedded", {}).get("leads", [])
+    if response.status_code == 200:
+        leads += response.json().get("_embedded", {}).get("leads", [])
+    else:
+        logging.error(f"❌ Ошибка получения сделок с `payment_id`: {response.text}")
+
+    # 🔹 2. Запрашиваем сделки по `order_id`
+    params = {"filter[custom_fields_values][field_id]": ORDER_ID_FIELD_ID}
+    response = requests.get(url, headers=headers, params=params)
+
+    if response.status_code == 200:
+        leads += response.json().get("_embedded", {}).get("leads", [])
+    else:
+        logging.error(f"❌ Ошибка получения сделок с `order_id`: {response.text}")
+
     if not leads:
         logging.info("✅ Нет сделок с неоплаченными платежами")
         return
@@ -138,7 +151,7 @@ def check_old_payments():
         if not payment_id and not order_id:
             continue
 
-        # Проверяем статус платежа
+        # 🔹 Проверяем статус платежа в ЮKassa
         payment = None
         try:
             if payment_id:
@@ -164,6 +177,7 @@ def check_old_payments():
         logging.info(f"🔄 Обновлен статус сделки {lead_id}: {new_status}")
 
     logging.info("✅ Завершена проверка старых платежей")
+
 
 # ✅ Запуск фоновой проверки каждые 10 минут
 def start_background_checker():
