@@ -7,6 +7,10 @@ from yookassa import Configuration, Payment
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Hello, World! Your Gunicorn server is running."
+
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # 🔹 Настройки AmoCRM
